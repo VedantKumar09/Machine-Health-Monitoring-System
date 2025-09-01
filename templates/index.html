@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Machine Health Analysis</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { margin-bottom: 10px; }
+        select, button { margin: 5px 0; padding: 5px; font-size: 16px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        th { background-color: #f2f2f2; }
+        .chart-container { width: 90%; margin: 30px auto; }
+    </style> -->
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<h1>Machine Health Analysis Dashboard</h1>
+
+<label for="timeframe">Select Timeframe:</label>
+<select id="timeframe">
+    <option value="hourly">Hourly</option>
+    <option value="weekly">Weekly</option>
+    <option value="monthly" selected>Monthly</option>
+    <option value="yearly">Yearly</option>
+</select>
+
+<button onclick="loadAnalysis()">Load Analysis</button>
+<button onclick="loadGSheetAnalysis()">Load Latest from Google Sheet</button>
+
+<div id="status"></div>
+
+<!-- Table to show raw data -->
+<table id="data-table" style="display:none;">
+    <thead id="table-head"></thead>
+    <tbody id="table-body"></tbody>
+</table>
+
+<!-- Chart containers -->
+<div class="chart-row">
+    <div class="chart-container">
+        <canvas id="tempChart" height="150"></canvas>
+    </div>
+    <div class="chart-container">
+        <canvas id="humidityChart" height="150"></canvas>
+    </div>
+    <div class="chart-container">
+        <canvas id="soundChart" height="150"></canvas>
+    </div>
+</div>
+
+
+
+<script>
+    let tempChart, humidityChart, soundChart;
+
+    function createChart(ctx, label, values, timestamps, color) {
+    return new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: timestamps.map(ts => new Date(ts).toLocaleString()),
+            datasets: [{
+                label: label,
+                data: values,
+                borderColor: color,
+                backgroundColor: 'transparent', // no fill
+                fill: false,                    // single line
+                tension: 0.1,                   // smooth but minimal curve
+                pointRadius: 0,                 // no dots
+                borderWidth: 2
+            }]
+        },
+        options: {
+            plugins: {
+                legend: {
+                    display: true
+                }
+            },
+            scales: {
+                x: {
+                    display: true,
+                    title: { display: true, text: 'Date & Time' },
+                    ticks: {
+                        maxRotation: 90,
+                        minRotation: 45
+                    }
+                },
+                y: {
+                    display: true,
+                    title: { display: true, text: label }
+                }
+            }
+        }
+    });
+}
+
+
+    // function createChart(ctx, label, values, timestamps, color) {
+    //     return new Chart(ctx, {
+    //         type: 'line',
+    //         data: {
+    //             labels: timestamps.map(ts => new Date(ts).toLocaleString()),
+    //             datasets: [{
+    //                 label: label,
+    //                 data: values,
+    //                 borderColor: color,
+    //                 backgroundColor: color + '55',
+    //                 fill: true,
+    //                 tension: 0.3,
+    //                 pointRadius: 3,
+    //             }]
+    //         },
+    //         options: {
+    //             scales: {
+    //                 x: {
+    //                     display: true,
+    //                     title: { display: true, text: 'Date & Time' },
+    //                     ticks: {
+    //                         maxRotation: 90,
+    //                         minRotation: 45
+    //                     }
+    //                 },
+    //                 y: {
+    //                     display: true,
+    //                     title: { display: true, text: label }
+    //                 }
+    //             }
+    //         }
+    //     });
+    // }
+
+    function loadAnalysis() {
+        const timeframe = document.getElementById('timeframe').value;
+        document.getElementById('status').innerText = 'Loading ' + timeframe + ' analysis...';
+        fetch(`/api/predict/${timeframe}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    document.getElementById('status').innerText = 'Error: ' + data.error;
+                    return;
+                }
+                document.getElementById('status').innerText = 'Loaded ' + data.length + ' records.';
+                showTable(data);
+                showCharts(data);
+            })
+            .catch(err => {
+                document.getElementById('status').innerText = 'Fetch error: ' + err;
+            });
+    }
+
+    function loadGSheetAnalysis() {
+        document.getElementById('status').innerText = 'Loading latest data from Google Sheet...';
+        fetch('/api/data_gsheet')
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    document.getElementById('status').innerText = 'Error: ' + data.error;
+                    return;
+                }
+                document.getElementById('status').innerText = 'Loaded ' + data.length + ' records from Google Sheet.';
+                showTable(data);
+                showCharts(data);
+            })
+            .catch(err => {
+                document.getElementById('status').innerText = 'Fetch error: ' + err;
+            });
+    }
+
+    function showTable(data) {
+        const table = document.getElementById('data-table');
+        const thead = document.getElementById('table-head');
+        const tbody = document.getElementById('table-body');
+
+        if (data.length === 0) {
+            table.style.display = 'none';
+            return;
+        }
+
+        thead.innerHTML = '';
+        tbody.innerHTML = '';
+
+        const headers = Object.keys(data[0]);
+        const trHead = document.createElement('tr');
+        headers.forEach(h => {
+            const th = document.createElement('th');
+            th.innerText = h;
+            trHead.appendChild(th);
+        });
+        thead.appendChild(trHead);
+
+        data.forEach(row => {
+            const tr = document.createElement('tr');
+            headers.forEach(h => {
+                const td = document.createElement('td');
+                td.innerText = row[h];
+                tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+
+        table.style.display = 'table';
+    }
+
+    function showCharts(data) {
+        const tempMean = data.map(d => d["Temperature(°C)_mean"]);
+        const humidityMean = data.map(d => d["Humidity(%)_mean"]);
+        const soundMean = data.map(d => d["SoundLevel(dB)_mean"]);
+        const timestamps = data.map(d => d.Timestamp);
+
+        if (tempChart) tempChart.destroy();
+        if (humidityChart) humidityChart.destroy();
+        if (soundChart) soundChart.destroy();
+
+        tempChart = createChart(document.getElementById('tempChart').getContext('2d'), 'Temperature (°C) Mean', tempMean, timestamps, 'rgba(255,99,132,1)');
+        humidityChart = createChart(document.getElementById('humidityChart').getContext('2d'), 'Humidity (%) Mean', humidityMean, timestamps, 'rgba(54,162,235,1)');
+        soundChart = createChart(document.getElementById('soundChart').getContext('2d'), 'Sound Level (dB) Mean', soundMean, timestamps, 'rgba(255,206,86,1)');
+    }
+
+    window.onload = loadAnalysis;
+
+    setInterval(() => {
+        console.log("Auto-refreshing latest data from Google Sheet...");
+        loadGSheetAnalysis();
+    }, 600000);
+</script>
+
+</body>
+</html>
